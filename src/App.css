@@ -402,6 +402,48 @@ th {
   border-left: 6px solid #2563eb;
 }
 
+/* Orbit Planning */
+
+.orbit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.orbit-layout {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin: 18px 0;
+}
+
+.orbit-card {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  padding: 18px;
+  text-align: center;
+}
+
+.orbit-card h4 {
+  margin: 0;
+  color: #1e40af;
+  font-size: 14px;
+}
+
+.orbit-card p {
+  margin: 10px 0 0;
+  font-size: 26px;
+  font-weight: bold;
+  color: #1d4ed8;
+}
+
+.orbit-note {
+  color: #6b7280;
+  line-height: 1.6;
+}
+
 /* Satellite Map */
 
 .satellite-map {
@@ -710,6 +752,14 @@ th {
 
   .architecture-card {
     width: 100%;
+  }
+
+  .orbit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .orbit-layout {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .map-area {

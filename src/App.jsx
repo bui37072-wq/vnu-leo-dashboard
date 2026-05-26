@@ -10,6 +10,7 @@ import trafficHistory from './data/trafficHistory.json';
 const menuItems = [
   { id: 'overview', label: 'Tổng quan', icon: '📊' },
   { id: 'architecture', label: 'Kiến trúc hệ thống', icon: '🏗️' },
+  { id: 'orbit', label: 'Orbit Planning', icon: '🧮' },
   { id: 'gateway', label: 'Gateway', icon: '🌐' },
   { id: 'satellite', label: 'Vệ tinh', icon: '🛰️' },
   { id: 'router', label: 'Router người dùng', icon: '📡' },
@@ -26,6 +27,7 @@ function App() {
   const [planFilter, setPlanFilter] = useState('All');
   const [selectedRouterId, setSelectedRouterId] = useState('RT-101');
 
+  const [liveGateways, setLiveGateways] = useState(gateways);
   const [liveSatellites, setLiveSatellites] = useState(satellites);
   const [liveHandoverLogs, setLiveHandoverLogs] = useState(handoverLogs);
   const [simulationTime, setSimulationTime] = useState(0);
@@ -196,6 +198,54 @@ function App() {
     };
   }
 
+  function calculateOrbitPlan() {
+    const vietnamLengthKm = 1650;
+    const vietnamWidthKm = 600;
+
+    const leoAltitudeKm = 550;
+    const earthRadiusKm = 6371;
+
+    const minElevationDeg = 25;
+    const minElevationRad = (minElevationDeg * Math.PI) / 180;
+
+    const coverageRadiusKm = Math.round(
+      Math.sqrt(
+        Math.pow(earthRadiusKm + leoAltitudeKm, 2) -
+          Math.pow(earthRadiusKm * Math.cos(minElevationRad), 2)
+      ) -
+        earthRadiusKm * Math.sin(minElevationRad)
+    );
+
+    const coverageDiameterKm = coverageRadiusKm * 2;
+
+    const satellitesAlongLength = Math.ceil(vietnamLengthKm / coverageDiameterKm);
+    const satellitesAcrossWidth = Math.ceil(vietnamWidthKm / coverageDiameterKm);
+
+    const visibleSatellitesNeeded = Math.max(
+      3,
+      satellitesAlongLength * satellitesAcrossWidth
+    );
+
+    const redundancyFactor = 6;
+    const totalSatellites = visibleSatellitesNeeded * redundancyFactor;
+
+    const orbitalPlanes = 3;
+    const satellitesPerPlane = Math.ceil(totalSatellites / orbitalPlanes);
+
+    return {
+      leoAltitudeKm,
+      minElevationDeg,
+      coverageRadiusKm,
+      coverageDiameterKm,
+      visibleSatellitesNeeded,
+      redundancyFactor,
+      totalSatellites,
+      orbitalPlanes,
+      satellitesPerPlane,
+      inclinationDeg: 53
+    };
+  }
+
   useEffect(() => {
     const timer = setInterval(() => {
       if (!isSimulationRunning) {
@@ -205,8 +255,8 @@ function App() {
       setSimulationTime((prevTime) => {
         const nextTime = prevTime + 1;
 
-        setLiveSatellites((prevSatellites) =>
-          prevSatellites.map((sat, index) => {
+        setLiveSatellites((prevSatellites) => {
+          const updatedSatellites = prevSatellites.map((sat, index) => {
             if (sat.status === 'Offline') {
               return sat;
             }
@@ -240,6 +290,12 @@ function App() {
               setLiveHandoverLogs((prevLogs) => [
                 {
                   time: timeText,
+                  sessionId: `SES-${sat.id}-${nextTime}`,
+                  serviceType:
+                    newSignalQuality > 80
+                      ? 'Internet/VoIP'
+                      : 'Weather Radar Data',
+                  sessionStatus: 'Maintained',
                   router: 'SYSTEM',
                   satellite: sat.id,
                   fromGateway: oldGateway,
@@ -259,8 +315,81 @@ function App() {
               signalQuality: newSignalQuality,
               status: newStatus
             };
-          })
-        );
+          });
+
+          setLiveGateways((prevGateways) =>
+            prevGateways.map((gw) => {
+              const connectedSats = updatedSatellites.filter(
+                (sat) => sat.gateway === gw.id && sat.status !== 'Offline'
+              );
+
+              const nearestSatellite =
+                updatedSatellites
+                  .filter((sat) => sat.status !== 'Offline')
+                  .sort((a, b) => {
+                    const distanceA = getDistanceKm(
+                      gw.latitude,
+                      gw.longitude,
+                      a.latitude,
+                      a.longitude
+                    );
+
+                    const distanceB = getDistanceKm(
+                      gw.latitude,
+                      gw.longitude,
+                      b.latitude,
+                      b.longitude
+                    );
+
+                    return distanceA - distanceB;
+                  })[0] || null;
+
+              const trafficChange = Math.round(Math.random() * 26 - 12);
+
+              const newTraffic = Math.max(
+                120,
+                Math.min(gw.capacity, gw.traffic + trafficChange)
+              );
+
+              const selectedSatellite =
+                connectedSats.length > 0 ? connectedSats[0] : nearestSatellite;
+
+              let newStatus = 'Online';
+
+              if (!selectedSatellite) {
+                newStatus = 'Warning';
+              }
+
+              if (newTraffic > gw.capacity * 0.9) {
+                newStatus = 'Warning';
+              }
+
+              const now = new Date();
+              const timeText = now.toLocaleTimeString('vi-VN', {
+                hour12: false
+              });
+
+              return {
+                ...gw,
+                traffic: newTraffic,
+                status: newStatus,
+                activeRouters: Math.max(
+                  10,
+                  Math.min(
+                    80,
+                    gw.activeRouters + Math.round(Math.random() * 6 - 3)
+                  )
+                ),
+                connectedSatellite: selectedSatellite
+                  ? selectedSatellite.id
+                  : 'None',
+                lastUpdate: timeText
+              };
+            })
+          );
+
+          return updatedSatellites;
+        });
 
         return nextTime;
       });
@@ -269,8 +398,11 @@ function App() {
     return () => clearInterval(timer);
   }, [isSimulationRunning]);
 
-  const totalTraffic = gateways.reduce((sum, gw) => sum + gw.traffic, 0);
-  const onlineGateways = gateways.filter((gw) => gw.status === 'Online').length;
+  const totalTraffic = liveGateways.reduce((sum, gw) => sum + gw.traffic, 0);
+
+  const onlineGateways = liveGateways.filter(
+    (gw) => gw.status === 'Online'
+  ).length;
 
   const onlineSatellites = liveSatellites.filter(
     (sat) => sat.status === 'Online'
@@ -282,7 +414,7 @@ function App() {
 
   const alerts = [];
 
-  gateways.forEach((gw) => {
+  liveGateways.forEach((gw) => {
     if (gw.status === 'Offline') {
       alerts.push(`${gw.id} đang mất kết nối`);
     }
@@ -360,6 +492,7 @@ function App() {
       })[0] || liveSatellites[0];
 
   const antennaMetrics = calculateAntennaMetrics(selectedRouter, bestSatellite);
+  const orbitPlan = calculateOrbitPlan();
 
   return (
     <div className="app">
@@ -427,7 +560,7 @@ function App() {
               <div className="card">
                 <h3>Gateways Online</h3>
                 <p>
-                  {onlineGateways}/{gateways.length}
+                  {onlineGateways}/{liveGateways.length}
                 </p>
               </div>
 
@@ -565,6 +698,135 @@ function App() {
           </section>
         )}
 
+        {activeMenu === 'orbit' && (
+          <section className="page">
+            <h2>Tính toán và đề xuất chòm vệ tinh LEO</h2>
+
+            <div className="orbit-grid">
+              <div className="panel">
+                <h3>Thông số đầu vào</h3>
+
+                <table>
+                  <tbody>
+                    <tr>
+                      <td>Vùng cần phủ sóng</td>
+                      <td>Toàn bộ Việt Nam</td>
+                    </tr>
+                    <tr>
+                      <td>Chiều dài xấp xỉ</td>
+                      <td>1650 km</td>
+                    </tr>
+                    <tr>
+                      <td>Chiều rộng xấp xỉ</td>
+                      <td>600 km</td>
+                    </tr>
+                    <tr>
+                      <td>Độ cao quỹ đạo LEO</td>
+                      <td>{orbitPlan.leoAltitudeKm} km</td>
+                    </tr>
+                    <tr>
+                      <td>Góc ngẩng tối thiểu</td>
+                      <td>{orbitPlan.minElevationDeg}°</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="panel">
+                <h3>Kết quả tính toán phủ sóng</h3>
+
+                <table>
+                  <tbody>
+                    <tr>
+                      <td>Bán kính phủ sóng ước lượng</td>
+                      <td>{orbitPlan.coverageRadiusKm} km</td>
+                    </tr>
+                    <tr>
+                      <td>Đường kính vùng phủ</td>
+                      <td>{orbitPlan.coverageDiameterKm} km</td>
+                    </tr>
+                    <tr>
+                      <td>Số vệ tinh cần nhìn thấy tức thời</td>
+                      <td>{orbitPlan.visibleSatellitesNeeded}</td>
+                    </tr>
+                    <tr>
+                      <td>Hệ số dự phòng do vệ tinh di chuyển</td>
+                      <td>x{orbitPlan.redundancyFactor}</td>
+                    </tr>
+                    <tr>
+                      <td>Tổng số vệ tinh đề xuất</td>
+                      <td>
+                        <strong>{orbitPlan.totalSatellites} vệ tinh</strong>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="panel">
+              <h3>Đề xuất sắp xếp quỹ đạo</h3>
+
+              <div className="orbit-layout">
+                <div className="orbit-card">
+                  <h4>Số mặt phẳng quỹ đạo</h4>
+                  <p>{orbitPlan.orbitalPlanes}</p>
+                </div>
+
+                <div className="orbit-card">
+                  <h4>Vệ tinh mỗi mặt phẳng</h4>
+                  <p>{orbitPlan.satellitesPerPlane}</p>
+                </div>
+
+                <div className="orbit-card">
+                  <h4>Độ nghiêng quỹ đạo</h4>
+                  <p>{orbitPlan.inclinationDeg}°</p>
+                </div>
+
+                <div className="orbit-card">
+                  <h4>Độ cao</h4>
+                  <p>{orbitPlan.leoAltitudeKm} km</p>
+                </div>
+              </div>
+
+              <p className="orbit-note">
+                Cấu hình đề xuất sử dụng nhiều mặt phẳng quỹ đạo để đảm bảo luôn
+                có vệ tinh phủ sóng Việt Nam. Số vệ tinh thực tế cần có cao hơn
+                số vệ tinh nhìn thấy tức thời vì vệ tinh LEO di chuyển nhanh và
+                cần dự phòng cho handover.
+              </p>
+            </div>
+
+            <div className="panel">
+              <h3>Đáp ứng hai loại dịch vụ</h3>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>Dịch vụ</th>
+                    <th>Yêu cầu chính</th>
+                    <th>Chiến lược lựa chọn vệ tinh/Gateway</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  <tr>
+                    <td>Internet / VoIP</td>
+                    <td>Độ trễ thấp, handover nhanh, kết nối ổn định</td>
+                    <td>Ưu tiên vệ tinh gần Router nhất, Gateway có latency thấp</td>
+                  </tr>
+
+                  <tr>
+                    <td>Ảnh / Radar thời tiết</td>
+                    <td>Băng thông cao, C/N tốt, ít mất gói</td>
+                    <td>Ưu tiên Gateway ít tải, C/N cao, signal quality tốt</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
         {activeMenu === 'gateway' && (
           <section className="page">
             <h2>Quản lý Gateway</h2>
@@ -586,7 +848,7 @@ function App() {
                 </thead>
 
                 <tbody>
-                  {gateways.map((gw) => (
+                  {liveGateways.map((gw) => (
                     <tr key={gw.id}>
                       <td>{gw.id}</td>
                       <td>{gw.name}</td>
@@ -1034,7 +1296,7 @@ function App() {
             <div className="panel">
               <h3>Lưu lượng hiện tại</h3>
 
-              {gateways.map((gw) => (
+              {liveGateways.map((gw) => (
                 <div className="traffic-row" key={gw.id}>
                   <div className="traffic-info">
                     <strong>{gw.id}</strong>
@@ -1094,13 +1356,16 @@ function App() {
 
         {activeMenu === 'handover' && (
           <section className="page">
-            <h2>Lịch sử Handover</h2>
+            <h2>Lịch sử Handover và duy trì phiên kết nối</h2>
 
             <div className="panel">
               <table>
                 <thead>
                   <tr>
                     <th>Thời gian</th>
+                    <th>Session ID</th>
+                    <th>Dịch vụ</th>
+                    <th>Trạng thái phiên</th>
                     <th>Router</th>
                     <th>Vệ tinh</th>
                     <th>Gateway cũ</th>
@@ -1113,6 +1378,13 @@ function App() {
                   {liveHandoverLogs.map((log, index) => (
                     <tr key={index}>
                       <td>{log.time}</td>
+                      <td>{log.sessionId || `SES-${index + 1}`}</td>
+                      <td>{log.serviceType || 'Internet/VoIP'}</td>
+                      <td>
+                        <span className="badge online">
+                          {log.sessionStatus || 'Maintained'}
+                        </span>
+                      </td>
                       <td>{log.router}</td>
                       <td>{log.satellite}</td>
                       <td>{log.fromGateway}</td>
@@ -1152,7 +1424,7 @@ function App() {
             <div className="report-grid">
               <div className="panel">
                 <h3>Tổng quan</h3>
-                <p>Tổng số Gateway: {gateways.length}</p>
+                <p>Tổng số Gateway: {liveGateways.length}</p>
                 <p>Tổng số vệ tinh: {liveSatellites.length}</p>
                 <p>Tổng số Router: {routers.length}</p>
                 <p>Tổng lưu lượng hiện tại: {totalTraffic} Mbps</p>
@@ -1162,7 +1434,7 @@ function App() {
               <div className="panel">
                 <h3>Đánh giá trạng thái</h3>
                 <p>
-                  Gateway Online: {onlineGateways}/{gateways.length}
+                  Gateway Online: {onlineGateways}/{liveGateways.length}
                 </p>
                 <p>
                   Vệ tinh Online: {onlineSatellites}/{liveSatellites.length}
@@ -1188,8 +1460,8 @@ function App() {
                 </p>
 
                 <p>
-                  Các ngưỡng đánh giá được sử dụng để tự động sinh cảnh báo, giúp
-                  quản trị viên nhanh chóng phát hiện các trạng thái bất thường.
+                  Gateway được cập nhật theo thời gian thực, bao gồm lưu lượng,
+                  số Router đang kết nối, vệ tinh liên kết và thời điểm cập nhật.
                 </p>
               </div>
             </div>
