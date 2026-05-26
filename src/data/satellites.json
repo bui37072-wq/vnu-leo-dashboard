@@ -1,0 +1,62 @@
+[
+  {
+    "id": "SAT-01",
+    "altitude": 550,
+    "status": "Online",
+    "coverage": "Miền Bắc",
+    "gateway": "GW-HN",
+    "signalQuality": 91,
+    "orbit": "LEO-01",
+    "speed": 7.6,
+    "latitude": 22.0,
+    "longitude": 104.5
+  },
+  {
+    "id": "SAT-03",
+    "altitude": 550,
+    "status": "Online",
+    "coverage": "Miền Bắc",
+    "gateway": "GW-HN",
+    "signalQuality": 92,
+    "orbit": "LEO-01",
+    "speed": 7.5,
+    "latitude": 20.5,
+    "longitude": 105.8
+  },
+  {
+    "id": "SAT-05",
+    "altitude": 550,
+    "status": "Online",
+    "coverage": "Miền Trung",
+    "gateway": "GW-DN",
+    "signalQuality": 87,
+    "orbit": "LEO-02",
+    "speed": 7.4,
+    "latitude": 16.1,
+    "longitude": 108.2
+  },
+  {
+    "id": "SAT-08",
+    "altitude": 550,
+    "status": "Warning",
+    "coverage": "Miền Nam",
+    "gateway": "GW-HCM",
+    "signalQuality": 68,
+    "orbit": "LEO-03",
+    "speed": 7.6,
+    "latitude": 10.8,
+    "longitude": 106.7
+  },
+  {
+    "id": "SAT-11",
+    "altitude": 550,
+    "status": "Offline",
+    "coverage": "Dự phòng",
+    "gateway": "None",
+    "signalQuality": 0,
+    "orbit": "LEO-03",
+    "speed": 0,
+    "latitude": 0,
+    "longitude": 0
+  }
+]

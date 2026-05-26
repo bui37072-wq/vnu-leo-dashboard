@@ -1,0 +1,41 @@
+[
+  {
+    "id": "GW-HN",
+    "name": "Gateway Hà Nội",
+    "location": "Hà Nội",
+    "latitude": 21.0285,
+    "longitude": 105.8542,
+    "status": "Online",
+    "traffic": 320,
+    "capacity": 600,
+    "activeRouters": 42,
+    "connectedSatellite": "SAT-03",
+    "lastUpdate": "14:20:12"
+  },
+  {
+    "id": "GW-DN",
+    "name": "Gateway Đà Nẵng",
+    "location": "Đà Nẵng",
+    "latitude": 16.0544,
+    "longitude": 108.2022,
+    "status": "Online",
+    "traffic": 185,
+    "capacity": 600,
+    "activeRouters": 31,
+    "connectedSatellite": "SAT-05",
+    "lastUpdate": "14:20:10"
+  },
+  {
+    "id": "GW-HCM",
+    "name": "Gateway TP.HCM",
+    "location": "TP. Hồ Chí Minh",
+    "latitude": 10.7769,
+    "longitude": 106.7009,
+    "status": "Warning",
+    "traffic": 510,
+    "capacity": 600,
+    "activeRouters": 55,
+    "connectedSatellite": "SAT-08",
+    "lastUpdate": "14:20:09"
+  }
+]

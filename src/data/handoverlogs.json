@@ -1,0 +1,34 @@
+[
+  {
+    "time": "14:05:12",
+    "router": "RT-101",
+    "satellite": "SAT-03",
+    "fromGateway": "GW-HN",
+    "toGateway": "GW-DN",
+    "reason": "Vệ tinh rời vùng phủ sóng Gateway cũ"
+  },
+  {
+    "time": "14:10:40",
+    "router": "RT-103",
+    "satellite": "SAT-08",
+    "fromGateway": "GW-HCM",
+    "toGateway": "GW-DN",
+    "reason": "Tín hiệu Gateway mới tốt hơn"
+  },
+  {
+    "time": "14:15:22",
+    "router": "RT-102",
+    "satellite": "SAT-05",
+    "fromGateway": "GW-DN",
+    "toGateway": "GW-HCM",
+    "reason": "Router đang di chuyển về phía Nam"
+  },
+  {
+    "time": "14:18:03",
+    "router": "RT-104",
+    "satellite": "SAT-01",
+    "fromGateway": "GW-HN",
+    "toGateway": "GW-HN",
+    "reason": "Duy trì kết nối Gateway hiện tại"
+  }
+]
