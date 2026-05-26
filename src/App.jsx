@@ -14,6 +14,7 @@ const menuItems = [
   { id: 'gateway', label: 'Gateway', icon: '🌐' },
   { id: 'satellite', label: 'Vệ tinh', icon: '🛰️' },
   { id: 'router', label: 'Router người dùng', icon: '📡' },
+  { id: 'router-simulation', label: 'Router Simulation', icon: '🖧' },
   { id: 'antenna', label: 'Antenna Tracking', icon: '🎯' },
   { id: 'traffic', label: 'Lưu lượng', icon: '📈' },
   { id: 'handover', label: 'Handover', icon: '🔁' },
@@ -26,6 +27,7 @@ function App() {
   const [routerSearch, setRouterSearch] = useState('');
   const [planFilter, setPlanFilter] = useState('All');
   const [selectedRouterId, setSelectedRouterId] = useState('RT-101');
+  const [selectedServiceType, setSelectedServiceType] = useState('Internet/VoIP');
 
   const [liveGateways, setLiveGateways] = useState(gateways);
   const [liveSatellites, setLiveSatellites] = useState(satellites);
@@ -34,41 +36,19 @@ function App() {
   const [isSimulationRunning, setIsSimulationRunning] = useState(true);
 
   function getGatewayByLatitude(latitude) {
-    if (latitude >= 18) {
-      return {
-        gateway: 'GW-HN',
-        coverage: 'Miền Bắc'
-      };
-    }
-
-    if (latitude >= 13) {
-      return {
-        gateway: 'GW-DN',
-        coverage: 'Miền Trung'
-      };
-    }
-
-    return {
-      gateway: 'GW-HCM',
-      coverage: 'Miền Nam'
-    };
+    if (latitude >= 18) return { gateway: 'GW-HN', coverage: 'Miền Bắc' };
+    if (latitude >= 13) return { gateway: 'GW-DN', coverage: 'Miền Trung' };
+    return { gateway: 'GW-HCM', coverage: 'Miền Nam' };
   }
 
   function getAliveStatus(lastSeen) {
-    if (lastSeen <= 10) {
-      return 'Alive';
-    }
-
-    if (lastSeen <= 20) {
-      return 'Warning';
-    }
-
+    if (lastSeen <= 10) return 'Alive';
+    if (lastSeen <= 20) return 'Warning';
     return 'Dead';
   }
 
   function getDistanceKm(lat1, lon1, lat2, lon2) {
     const earthRadius = 6371;
-
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
 
@@ -80,14 +60,11 @@ function App() {
         Math.sin(dLon / 2);
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
     return earthRadius * c;
   }
 
   function checkGeoFence(router) {
-    if (router.plan === 'Mobility') {
-      return 'Allowed';
-    }
+    if (router.plan === 'Mobility') return 'Allowed';
 
     const distance = getDistanceKm(
       router.latitude,
@@ -96,19 +73,13 @@ function App() {
       router.homeLongitude
     );
 
-    if (distance <= router.allowedRadiusKm) {
-      return 'Allowed';
-    }
-
-    return 'Violation';
+    return distance <= router.allowedRadiusKm ? 'Allowed' : 'Violation';
   }
 
   function checkDeviceVerification(router) {
-    if (router.hardwareId === router.registeredHardwareId) {
-      return 'Verified';
-    }
-
-    return 'Spoofing';
+    return router.hardwareId === router.registeredHardwareId
+      ? 'Verified'
+      : 'Spoofing';
   }
 
   function calculateDistanceKm(router, satellite) {
@@ -128,7 +99,6 @@ function App() {
 
   function calculatePathLoss(distanceKm, frequencyGhz = 12) {
     const frequencyMhz = frequencyGhz * 1000;
-
     return 32.44 + 20 * Math.log10(distanceKm) + 20 * Math.log10(frequencyMhz);
   }
 
@@ -198,13 +168,73 @@ function App() {
     };
   }
 
+  function calculateRouterSimulation(router, satellite, gateway, serviceType) {
+    const antennaData = calculateAntennaMetrics(router, satellite);
+
+    const baseLatency = serviceType === 'Internet/VoIP' ? 25 : 45;
+    const trafficBase = serviceType === 'Internet/VoIP' ? 35 : 180;
+
+    const latency = Math.max(
+      15,
+      Math.round(
+        baseLatency +
+          antennaData.distanceKm / 120 +
+          Math.abs(Math.sin(simulationTime / 3)) * 12
+      )
+    );
+
+    const traffic = Math.max(
+      5,
+      Math.round(
+        trafficBase +
+          Math.abs(Math.sin(simulationTime / 4)) * 60 -
+          antennaData.pointingError * 2
+      )
+    );
+
+    const packetLoss = Math.max(
+      0,
+      Number(
+        (
+          (antennaData.linkStatus === 'Good' ? 0.2 : 1.5) +
+          antennaData.pointingError * 0.15 +
+          Math.abs(Math.sin(simulationTime / 5)) * 0.8
+        ).toFixed(2)
+      )
+    );
+
+    let connectionStatus = 'Connected';
+
+    if (antennaData.cn < 8 || packetLoss > 5) {
+      connectionStatus = 'Poor';
+    } else if (antennaData.cn < 12 || latency > 80) {
+      connectionStatus = 'Warning';
+    }
+
+    const handoverStatus =
+      satellite.gateway !== router.gateway ? 'Handover Required' : 'Stable';
+
+    return {
+      routerId: router.id,
+      routerLocation: router.location,
+      satelliteId: satellite.id,
+      gatewayId: gateway?.id || satellite.gateway,
+      serviceType,
+      cn: antennaData.cn,
+      latency,
+      traffic,
+      packetLoss,
+      signalQuality: antennaData.signalQuality,
+      connectionStatus,
+      handoverStatus
+    };
+  }
+
   function calculateOrbitPlan() {
     const vietnamLengthKm = 1650;
     const vietnamWidthKm = 600;
-
     const leoAltitudeKm = 550;
     const earthRadiusKm = 6371;
-
     const minElevationDeg = 25;
     const minElevationRad = (minElevationDeg * Math.PI) / 180;
 
@@ -217,7 +247,6 @@ function App() {
     );
 
     const coverageDiameterKm = coverageRadiusKm * 2;
-
     const satellitesAlongLength = Math.ceil(vietnamLengthKm / coverageDiameterKm);
     const satellitesAcrossWidth = Math.ceil(vietnamWidthKm / coverageDiameterKm);
 
@@ -228,7 +257,6 @@ function App() {
 
     const redundancyFactor = 6;
     const totalSatellites = visibleSatellitesNeeded * redundancyFactor;
-
     const orbitalPlanes = 3;
     const satellitesPerPlane = Math.ceil(totalSatellites / orbitalPlanes);
 
@@ -248,27 +276,21 @@ function App() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      if (!isSimulationRunning) {
-        return;
-      }
+      if (!isSimulationRunning) return;
 
       setSimulationTime((prevTime) => {
         const nextTime = prevTime + 1;
 
         setLiveSatellites((prevSatellites) => {
           const updatedSatellites = prevSatellites.map((sat, index) => {
-            if (sat.status === 'Offline') {
-              return sat;
-            }
+            if (sat.status === 'Offline') return sat;
 
             const oldGateway = sat.gateway;
-
             const phase = index * 55;
             const angle = (nextTime * 10 + phase) % 360;
 
             const newLongitude = 102 + (angle / 360) * 8;
             const newLatitude = 15.5 + Math.sin((angle * Math.PI) / 180) * 6.5;
-
             const gatewayInfo = getGatewayByLatitude(newLatitude);
 
             const newSignalQuality = Math.max(
@@ -429,40 +451,17 @@ function App() {
     const geoFenceStatus = checkGeoFence(rt);
     const verificationStatus = checkDeviceVerification(rt);
 
-    if (aliveStatus === 'Dead') {
-      alerts.push(`${rt.id} không phản hồi, trạng thái Dead`);
-    }
-
-    if (rt.status === 'Disconnected') {
-      alerts.push(`${rt.id} đã mất kết nối`);
-    }
-
-    if (rt.cn < 12) {
-      alerts.push(`${rt.id} có C/N thấp: ${rt.cn} dB`);
-    }
-
-    if (rt.latency > 60) {
-      alerts.push(`${rt.id} có độ trễ cao: ${rt.latency} ms`);
-    }
-
-    if (verificationStatus === 'Spoofing') {
-      alerts.push(`${rt.id} nghi ngờ giả mạo Hardware ID`);
-    }
-
-    if (geoFenceStatus === 'Violation') {
-      alerts.push(`${rt.id} dùng gói Fixed nhưng đã rời khỏi vùng đăng ký`);
-    }
+    if (aliveStatus === 'Dead') alerts.push(`${rt.id} không phản hồi, trạng thái Dead`);
+    if (rt.status === 'Disconnected') alerts.push(`${rt.id} đã mất kết nối`);
+    if (rt.cn < 12) alerts.push(`${rt.id} có C/N thấp: ${rt.cn} dB`);
+    if (rt.latency > 60) alerts.push(`${rt.id} có độ trễ cao: ${rt.latency} ms`);
+    if (verificationStatus === 'Spoofing') alerts.push(`${rt.id} nghi ngờ giả mạo Hardware ID`);
+    if (geoFenceStatus === 'Violation') alerts.push(`${rt.id} dùng gói Fixed nhưng đã rời khỏi vùng đăng ký`);
   });
 
   liveSatellites.forEach((sat) => {
-    if (sat.status === 'Offline') {
-      alerts.push(`${sat.id} đang Offline`);
-    }
-
-    if (sat.status === 'Warning') {
-      alerts.push(`${sat.id} có chất lượng tín hiệu thấp: ${sat.signalQuality}%`);
-    }
-
+    if (sat.status === 'Offline') alerts.push(`${sat.id} đang Offline`);
+    if (sat.status === 'Warning') alerts.push(`${sat.id} có chất lượng tín hiệu thấp: ${sat.signalQuality}%`);
     if (sat.signalQuality < 70 && sat.status !== 'Offline') {
       alerts.push(`${sat.id} có signal quality thấp: ${sat.signalQuality}%`);
     }
@@ -493,6 +492,16 @@ function App() {
 
   const antennaMetrics = calculateAntennaMetrics(selectedRouter, bestSatellite);
   const orbitPlan = calculateOrbitPlan();
+
+  const selectedGateway =
+    liveGateways.find((gw) => gw.id === bestSatellite.gateway) || liveGateways[0];
+
+  const routerSimulation = calculateRouterSimulation(
+    selectedRouter,
+    bestSatellite,
+    selectedGateway,
+    selectedServiceType
+  );
 
   return (
     <div className="app">
@@ -535,9 +544,7 @@ function App() {
             <div className="sim-time">T+{simulationTime}s</div>
 
             <button
-              className={`sim-control ${
-                isSimulationRunning ? 'pause-btn' : 'resume-btn'
-              }`}
+              className={`sim-control ${isSimulationRunning ? 'pause-btn' : 'resume-btn'}`}
               onClick={() => setIsSimulationRunning(!isSimulationRunning)}
             >
               {isSimulationRunning ? 'Pause' : 'Resume'}
@@ -552,23 +559,17 @@ function App() {
             <div className="cards">
               <div className="card">
                 <h3>Satellites Online</h3>
-                <p>
-                  {onlineSatellites}/{liveSatellites.length}
-                </p>
+                <p>{onlineSatellites}/{liveSatellites.length}</p>
               </div>
 
               <div className="card">
                 <h3>Gateways Online</h3>
-                <p>
-                  {onlineGateways}/{liveGateways.length}
-                </p>
+                <p>{onlineGateways}/{liveGateways.length}</p>
               </div>
 
               <div className="card">
                 <h3>Active Routers</h3>
-                <p>
-                  {activeRouters}/{routers.length}
-                </p>
+                <p>{activeRouters}/{routers.length}</p>
               </div>
 
               <div className="card">
@@ -599,9 +600,7 @@ function App() {
                 <h3>Cảnh báo nhanh</h3>
                 {alerts.length > 0 ? (
                   alerts.map((alert, index) => (
-                    <div className="alert" key={index}>
-                      {alert}
-                    </div>
+                    <div className="alert" key={index}>{alert}</div>
                   ))
                 ) : (
                   <p>Không có cảnh báo.</p>
@@ -619,10 +618,7 @@ function App() {
               <div className="architecture-card">
                 <div className="arch-icon">📡</div>
                 <h3>Router người dùng</h3>
-                <p>
-                  Thiết bị đầu cuối kiểu Starlink, theo dõi C/N, suy hao và chất
-                  lượng tín hiệu.
-                </p>
+                <p>Thiết bị đầu cuối kiểu Starlink, theo dõi C/N, suy hao và chất lượng tín hiệu.</p>
               </div>
 
               <div className="arch-arrow">↓</div>
@@ -630,10 +626,7 @@ function App() {
               <div className="architecture-card">
                 <div className="arch-icon">🛰️</div>
                 <h3>Vệ tinh LEO</h3>
-                <p>
-                  Mô phỏng vệ tinh di chuyển, thay đổi vùng phủ và kết nối Gateway
-                  phù hợp.
-                </p>
+                <p>Mô phỏng vệ tinh di chuyển, thay đổi vùng phủ và kết nối Gateway phù hợp.</p>
               </div>
 
               <div className="arch-arrow">↓</div>
@@ -641,10 +634,7 @@ function App() {
               <div className="architecture-card gateway-layer">
                 <div className="arch-icon">🌐</div>
                 <h3>Gateway mặt đất</h3>
-                <p>
-                  Gồm GW-HN, GW-DN, GW-HCM. Duy trì phiên kết nối và ghi nhận
-                  handover.
-                </p>
+                <p>Gồm GW-HN, GW-DN, GW-HCM. Duy trì phiên kết nối và ghi nhận handover.</p>
               </div>
 
               <div className="arch-arrow">↓</div>
@@ -652,10 +642,7 @@ function App() {
               <div className="architecture-card dashboard-layer">
                 <div className="arch-icon">🖥️</div>
                 <h3>Web Admin Dashboard</h3>
-                <p>
-                  Giám sát Alive/Dead, lưu lượng, Router, vệ tinh, cảnh báo và báo
-                  cáo hệ thống.
-                </p>
+                <p>Giám sát Alive/Dead, lưu lượng, Router, vệ tinh, cảnh báo và báo cáo hệ thống.</p>
               </div>
             </div>
 
@@ -675,7 +662,7 @@ function App() {
                   <tr>
                     <td>Router người dùng</td>
                     <td>C/N, vị trí, gói cước, traffic, latency</td>
-                    <td>Router Management, Antenna Tracking, Alerts</td>
+                    <td>Router Management, Router Simulation, Antenna Tracking</td>
                   </tr>
                   <tr>
                     <td>Vệ tinh LEO</td>
@@ -755,9 +742,7 @@ function App() {
                     </tr>
                     <tr>
                       <td>Tổng số vệ tinh đề xuất</td>
-                      <td>
-                        <strong>{orbitPlan.totalSatellites} vệ tinh</strong>
-                      </td>
+                      <td><strong>{orbitPlan.totalSatellites} vệ tinh</strong></td>
                     </tr>
                   </tbody>
                 </table>
@@ -853,25 +838,19 @@ function App() {
                       <td>{gw.id}</td>
                       <td>{gw.name}</td>
                       <td>{gw.location}</td>
+                      <td>{gw.latitude}, {gw.longitude}</td>
                       <td>
-                        {gw.latitude}, {gw.longitude}
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            gw.status === 'Online'
-                              ? 'online'
-                              : gw.status === 'Warning'
-                                ? 'warning'
-                                : 'offline'
-                          }`}
-                        >
+                        <span className={`badge ${
+                          gw.status === 'Online'
+                            ? 'online'
+                            : gw.status === 'Warning'
+                              ? 'warning'
+                              : 'offline'
+                        }`}>
                           {gw.status}
                         </span>
                       </td>
-                      <td>
-                        {gw.traffic}/{gw.capacity} Mbps
-                      </td>
+                      <td>{gw.traffic}/{gw.capacity} Mbps</td>
                       <td>{gw.activeRouters}</td>
                       <td>{gw.connectedSatellite}</td>
                       <td>{gw.lastUpdate}</td>
@@ -895,23 +874,9 @@ function App() {
                 <div className="orbit-line orbit-2"></div>
                 <div className="orbit-line orbit-3"></div>
 
-                <div className="region north">
-                  Miền Bắc
-                  <br />
-                  GW-HN
-                </div>
-
-                <div className="region central">
-                  Miền Trung
-                  <br />
-                  GW-DN
-                </div>
-
-                <div className="region south">
-                  Miền Nam
-                  <br />
-                  GW-HCM
-                </div>
+                <div className="region north">Miền Bắc<br />GW-HN</div>
+                <div className="region central">Miền Trung<br />GW-DN</div>
+                <div className="region south">Miền Nam<br />GW-HCM</div>
 
                 {liveSatellites
                   .filter((sat) => sat.status !== 'Offline')
@@ -920,14 +885,8 @@ function App() {
                       className="sat-dot"
                       key={sat.id}
                       style={{
-                        left: `${Math.max(
-                          5,
-                          Math.min(95, ((sat.longitude - 102) / 8) * 100)
-                        )}%`,
-                        top: `${Math.max(
-                          8,
-                          Math.min(92, ((23 - sat.latitude) / 15) * 100)
-                        )}%`
+                        left: `${Math.max(5, Math.min(95, ((sat.longitude - 102) / 8) * 100))}%`,
+                        top: `${Math.max(8, Math.min(92, ((23 - sat.latitude) / 15) * 100))}%`
                       }}
                       title={`${sat.id} - ${sat.coverage}`}
                     >
@@ -971,24 +930,20 @@ function App() {
                       <td>
                         <div className="progress">
                           <div
-                            className={`progress-bar ${
-                              sat.signalQuality < 70 ? 'progress-warning' : ''
-                            }`}
+                            className={`progress-bar ${sat.signalQuality < 70 ? 'progress-warning' : ''}`}
                             style={{ width: `${sat.signalQuality}%` }}
                           ></div>
                         </div>
                         <span>{sat.signalQuality}%</span>
                       </td>
                       <td>
-                        <span
-                          className={`badge ${
-                            sat.status === 'Online'
-                              ? 'online'
-                              : sat.status === 'Warning'
-                                ? 'warning'
-                                : 'offline'
-                          }`}
-                        >
+                        <span className={`badge ${
+                          sat.status === 'Online'
+                            ? 'online'
+                            : sat.status === 'Warning'
+                              ? 'warning'
+                              : 'offline'
+                        }`}>
                           {sat.status}
                         </span>
                       </td>
@@ -1054,61 +1009,44 @@ function App() {
                         <td>{rt.user}</td>
                         <td>{rt.location}</td>
                         <td>{rt.plan}</td>
-
                         <td>
-                          <span
-                            className={`badge ${
-                              aliveStatus === 'Alive'
-                                ? 'online'
-                                : aliveStatus === 'Warning'
-                                  ? 'warning'
-                                  : 'offline'
-                            }`}
-                          >
+                          <span className={`badge ${
+                            aliveStatus === 'Alive'
+                              ? 'online'
+                              : aliveStatus === 'Warning'
+                                ? 'warning'
+                                : 'offline'
+                          }`}>
                             {aliveStatus}
                           </span>
                         </td>
-
                         <td>
-                          <span
-                            className={`badge ${
-                              verificationStatus === 'Verified'
-                                ? 'online'
-                                : 'offline'
-                            }`}
-                          >
+                          <span className={`badge ${
+                            verificationStatus === 'Verified' ? 'online' : 'offline'
+                          }`}>
                             {verificationStatus}
                           </span>
                         </td>
-
                         <td>
-                          <span
-                            className={`badge ${
-                              geoFenceStatus === 'Allowed'
-                                ? 'online'
-                                : 'offline'
-                            }`}
-                          >
+                          <span className={`badge ${
+                            geoFenceStatus === 'Allowed' ? 'online' : 'offline'
+                          }`}>
                             {geoFenceStatus}
                           </span>
                         </td>
-
                         <td>{rt.gateway}</td>
                         <td>{rt.satellite}</td>
                         <td>{rt.cn} dB</td>
                         <td>{rt.latency} ms</td>
                         <td>{rt.traffic} Mbps</td>
-
                         <td>
-                          <span
-                            className={`badge ${
-                              rt.status === 'Connected'
-                                ? 'online'
-                                : rt.status === 'Warning'
-                                  ? 'warning'
-                                  : 'offline'
-                            }`}
-                          >
+                          <span className={`badge ${
+                            rt.status === 'Connected'
+                              ? 'online'
+                              : rt.status === 'Warning'
+                                ? 'warning'
+                                : 'offline'
+                          }`}>
                             {rt.status}
                           </span>
                         </td>
@@ -1121,6 +1059,161 @@ function App() {
               {filteredRouters.length === 0 && (
                 <p className="empty">Không tìm thấy Router phù hợp.</p>
               )}
+            </div>
+          </section>
+        )}
+
+        {activeMenu === 'router-simulation' && (
+          <section className="page">
+            <h2>Mô phỏng hoạt động Router người dùng</h2>
+
+            <div className="toolbar">
+              <select
+                value={selectedRouterId}
+                onChange={(e) => setSelectedRouterId(e.target.value)}
+              >
+                {routers.map((router) => (
+                  <option key={router.id} value={router.id}>
+                    {router.id} - {router.location}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={selectedServiceType}
+                onChange={(e) => setSelectedServiceType(e.target.value)}
+              >
+                <option value="Internet/VoIP">Internet / VoIP</option>
+                <option value="Weather Radar Data">Ảnh / Radar thời tiết</option>
+              </select>
+            </div>
+
+            <div className="router-simulation-layout">
+              <div className="panel router-flow-panel">
+                <h3>Luồng kết nối Router</h3>
+
+                <div className="router-flow">
+                  <div className="flow-node router-node">
+                    <div className="flow-icon">📡</div>
+                    <h4>{routerSimulation.routerId}</h4>
+                    <p>{routerSimulation.routerLocation}</p>
+                  </div>
+
+                  <div className="flow-link"><span>Uplink</span></div>
+
+                  <div className="flow-node satellite-node">
+                    <div className="flow-icon">🛰️</div>
+                    <h4>{routerSimulation.satelliteId}</h4>
+                    <p>LEO Satellite</p>
+                  </div>
+
+                  <div className="flow-link"><span>Downlink</span></div>
+
+                  <div className="flow-node gateway-node">
+                    <div className="flow-icon">🌐</div>
+                    <h4>{routerSimulation.gatewayId}</h4>
+                    <p>Gateway</p>
+                  </div>
+
+                  <div className="flow-link"><span>Core</span></div>
+
+                  <div className="flow-node internet-node">
+                    <div className="flow-icon">☁️</div>
+                    <h4>Internet</h4>
+                    <p>Core Network</p>
+                  </div>
+                </div>
+
+                <div className="router-status-box">
+                  <p>
+                    Trạng thái kết nối:{' '}
+                    <span className={`badge ${
+                      routerSimulation.connectionStatus === 'Connected'
+                        ? 'online'
+                        : routerSimulation.connectionStatus === 'Warning'
+                          ? 'warning'
+                          : 'offline'
+                    }`}>
+                      {routerSimulation.connectionStatus}
+                    </span>
+                  </p>
+
+                  <p>
+                    Trạng thái handover:{' '}
+                    <span className={`badge ${
+                      routerSimulation.handoverStatus === 'Stable'
+                        ? 'online'
+                        : 'warning'
+                    }`}>
+                      {routerSimulation.handoverStatus}
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="panel">
+                <h3>Thông số Router thời gian thực</h3>
+
+                <table>
+                  <tbody>
+                    <tr><td>Router</td><td>{routerSimulation.routerId}</td></tr>
+                    <tr><td>Dịch vụ</td><td>{routerSimulation.serviceType}</td></tr>
+                    <tr><td>Vệ tinh đang kết nối</td><td>{routerSimulation.satelliteId}</td></tr>
+                    <tr><td>Gateway</td><td>{routerSimulation.gatewayId}</td></tr>
+                    <tr><td>C/N</td><td>{routerSimulation.cn} dB</td></tr>
+                    <tr><td>Latency</td><td>{routerSimulation.latency} ms</td></tr>
+                    <tr><td>Traffic</td><td>{routerSimulation.traffic} Mbps</td></tr>
+                    <tr><td>Packet Loss</td><td>{routerSimulation.packetLoss}%</td></tr>
+                    <tr><td>Signal Quality</td><td>{routerSimulation.signalQuality}%</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="metrics-grid">
+              <div className="metric-card">
+                <h3>C/N</h3>
+                <p>{routerSimulation.cn} dB</p>
+              </div>
+
+              <div className="metric-card">
+                <h3>Latency</h3>
+                <p>{routerSimulation.latency} ms</p>
+              </div>
+
+              <div className="metric-card">
+                <h3>Traffic</h3>
+                <p>{routerSimulation.traffic} Mbps</p>
+              </div>
+
+              <div className="metric-card">
+                <h3>Packet Loss</h3>
+                <p>{routerSimulation.packetLoss}%</p>
+              </div>
+            </div>
+
+            <div className="panel">
+              <h3>Đánh giá hoạt động Router</h3>
+
+              <p>
+                Với dịch vụ <strong>{routerSimulation.serviceType}</strong>, Router
+                sẽ chọn vệ tinh có liên kết tốt nhất để truyền dữ liệu. Internet/VoIP
+                ưu tiên độ trễ thấp, còn dữ liệu ảnh/radar thời tiết ưu tiên băng
+                thông và chất lượng tín hiệu.
+              </p>
+
+              <div className="signal-quality-bar">
+                <div
+                  className={`signal-quality-fill ${
+                    routerSimulation.signalQuality < 55
+                      ? 'signal-bad'
+                      : routerSimulation.signalQuality < 75
+                        ? 'signal-warning'
+                        : 'signal-good'
+                  }`}
+                  style={{ width: `${routerSimulation.signalQuality}%` }}
+                ></div>
+              </div>
             </div>
           </section>
         )}
@@ -1150,9 +1243,7 @@ function App() {
                   <div className="antenna-base">
                     <div
                       className="antenna-dish"
-                      style={{
-                        transform: `rotate(${antennaMetrics.azimuth}deg)`
-                      }}
+                      style={{ transform: `rotate(${antennaMetrics.azimuth}deg)` }}
                     >
                       📡
                     </div>
@@ -1163,9 +1254,7 @@ function App() {
 
                   <div
                     className="beam"
-                    style={{
-                      transform: `rotate(${antennaMetrics.azimuth}deg)`
-                    }}
+                    style={{ transform: `rotate(${antennaMetrics.azimuth}deg)` }}
                   ></div>
 
                   <div className="target-satellite">
@@ -1176,8 +1265,7 @@ function App() {
                 </div>
 
                 <div className="tracking-note">
-                  Ăng-ten mảng pha tự động điều chỉnh búp sóng để bám vệ tinh có
-                  liên kết tốt nhất.
+                  Ăng-ten mảng pha tự động điều chỉnh búp sóng để bám vệ tinh có liên kết tốt nhất.
                 </div>
               </div>
 
@@ -1186,42 +1274,15 @@ function App() {
 
                 <table>
                   <tbody>
-                    <tr>
-                      <td>Router</td>
-                      <td>{selectedRouter.id}</td>
-                    </tr>
-                    <tr>
-                      <td>Vệ tinh đang bám</td>
-                      <td>{bestSatellite.id}</td>
-                    </tr>
-                    <tr>
-                      <td>Gateway</td>
-                      <td>{bestSatellite.gateway}</td>
-                    </tr>
-                    <tr>
-                      <td>Khoảng cách</td>
-                      <td>{antennaMetrics.distanceKm} km</td>
-                    </tr>
-                    <tr>
-                      <td>Azimuth</td>
-                      <td>{antennaMetrics.azimuth}°</td>
-                    </tr>
-                    <tr>
-                      <td>Elevation</td>
-                      <td>{antennaMetrics.elevation}°</td>
-                    </tr>
-                    <tr>
-                      <td>Sai số bám anten</td>
-                      <td>{antennaMetrics.pointingError}°</td>
-                    </tr>
-                    <tr>
-                      <td>Suy hao do mưa</td>
-                      <td>{antennaMetrics.rainLoss} dB</td>
-                    </tr>
-                    <tr>
-                      <td>Suy hao khí quyển</td>
-                      <td>{antennaMetrics.atmosphericLoss} dB</td>
-                    </tr>
+                    <tr><td>Router</td><td>{selectedRouter.id}</td></tr>
+                    <tr><td>Vệ tinh đang bám</td><td>{bestSatellite.id}</td></tr>
+                    <tr><td>Gateway</td><td>{bestSatellite.gateway}</td></tr>
+                    <tr><td>Khoảng cách</td><td>{antennaMetrics.distanceKm} km</td></tr>
+                    <tr><td>Azimuth</td><td>{antennaMetrics.azimuth}°</td></tr>
+                    <tr><td>Elevation</td><td>{antennaMetrics.elevation}°</td></tr>
+                    <tr><td>Sai số bám anten</td><td>{antennaMetrics.pointingError}°</td></tr>
+                    <tr><td>Suy hao do mưa</td><td>{antennaMetrics.rainLoss} dB</td></tr>
+                    <tr><td>Suy hao khí quyển</td><td>{antennaMetrics.atmosphericLoss} dB</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1267,23 +1328,20 @@ function App() {
 
               <p>
                 Trạng thái liên kết:{' '}
-                <span
-                  className={`badge ${
-                    antennaMetrics.linkStatus === 'Good'
-                      ? 'online'
-                      : antennaMetrics.linkStatus === 'Warning'
-                        ? 'warning'
-                        : 'offline'
-                  }`}
-                >
+                <span className={`badge ${
+                  antennaMetrics.linkStatus === 'Good'
+                    ? 'online'
+                    : antennaMetrics.linkStatus === 'Warning'
+                      ? 'warning'
+                      : 'offline'
+                }`}>
                   {antennaMetrics.linkStatus}
                 </span>
               </p>
 
               <p>
                 C/N cao thì tín hiệu ổn định hơn. Khi vệ tinh di chuyển xa Router
-                hoặc sai số bám anten tăng, suy hao tăng và chất lượng tín hiệu
-                giảm.
+                hoặc sai số bám anten tăng, suy hao tăng và chất lượng tín hiệu giảm.
               </p>
             </div>
           </section>
@@ -1305,9 +1363,7 @@ function App() {
 
                   <div className="traffic-bar">
                     <div
-                      className={`traffic-fill ${
-                        gw.traffic > 400 ? 'traffic-warning' : ''
-                      }`}
+                      className={`traffic-fill ${gw.traffic > 400 ? 'traffic-warning' : ''}`}
                       style={{ width: `${(gw.traffic / gw.capacity) * 100}%` }}
                     ></div>
                   </div>
@@ -1380,11 +1436,7 @@ function App() {
                       <td>{log.time}</td>
                       <td>{log.sessionId || `SES-${index + 1}`}</td>
                       <td>{log.serviceType || 'Internet/VoIP'}</td>
-                      <td>
-                        <span className="badge online">
-                          {log.sessionStatus || 'Maintained'}
-                        </span>
-                      </td>
+                      <td><span className="badge online">{log.sessionStatus || 'Maintained'}</span></td>
                       <td>{log.router}</td>
                       <td>{log.satellite}</td>
                       <td>{log.fromGateway}</td>
@@ -1433,15 +1485,9 @@ function App() {
 
               <div className="panel">
                 <h3>Đánh giá trạng thái</h3>
-                <p>
-                  Gateway Online: {onlineGateways}/{liveGateways.length}
-                </p>
-                <p>
-                  Vệ tinh Online: {onlineSatellites}/{liveSatellites.length}
-                </p>
-                <p>
-                  Router đang kết nối: {activeRouters}/{routers.length}
-                </p>
+                <p>Gateway Online: {onlineGateways}/{liveGateways.length}</p>
+                <p>Vệ tinh Online: {onlineSatellites}/{liveSatellites.length}</p>
+                <p>Router đang kết nối: {activeRouters}/{routers.length}</p>
                 <p>Số cảnh báo: {alerts.length}</p>
               </div>
 
@@ -1454,9 +1500,9 @@ function App() {
                 </p>
 
                 <p>
-                  Hệ thống cũng kiểm tra Alive/Dead, Device Verification,
-                  Geo-fencing và mô phỏng ăng-ten mảng pha bám vệ tinh theo thời
-                  gian thực.
+                  Phần Router Simulation trực quan hóa hoạt động của Router người
+                  dùng theo thời gian thực, bao gồm luồng Router → Vệ tinh → Gateway
+                  → Internet, C/N, latency, traffic, packet loss và trạng thái handover.
                 </p>
 
                 <p>
@@ -1483,81 +1529,63 @@ function App() {
                   <tr>
                     <td>C/N</td>
                     <td>{'>= 12 dB'}</td>
-                    <td>
-                      <span className="badge online">Good</span>
-                    </td>
+                    <td><span className="badge online">Good</span></td>
                     <td>Liên kết ổn định, chất lượng tín hiệu tốt</td>
                   </tr>
 
                   <tr>
                     <td>C/N</td>
                     <td>8 - 12 dB</td>
-                    <td>
-                      <span className="badge warning">Warning</span>
-                    </td>
+                    <td><span className="badge warning">Warning</span></td>
                     <td>Tín hiệu yếu, cần theo dõi</td>
                   </tr>
 
                   <tr>
                     <td>C/N</td>
                     <td>{'< 8 dB'}</td>
-                    <td>
-                      <span className="badge offline">Poor</span>
-                    </td>
+                    <td><span className="badge offline">Poor</span></td>
                     <td>Liên kết kém, có nguy cơ mất kết nối</td>
                   </tr>
 
                   <tr>
                     <td>Traffic Gateway</td>
                     <td>{'< 400 Mbps'}</td>
-                    <td>
-                      <span className="badge online">Normal</span>
-                    </td>
+                    <td><span className="badge online">Normal</span></td>
                     <td>Gateway hoạt động bình thường</td>
                   </tr>
 
                   <tr>
                     <td>Traffic Gateway</td>
                     <td>400 - 600 Mbps</td>
-                    <td>
-                      <span className="badge warning">Warning</span>
-                    </td>
+                    <td><span className="badge warning">Warning</span></td>
                     <td>Gateway có lưu lượng cao</td>
                   </tr>
 
                   <tr>
                     <td>Traffic Gateway</td>
                     <td>{'> 600 Mbps'}</td>
-                    <td>
-                      <span className="badge offline">Overload</span>
-                    </td>
+                    <td><span className="badge offline">Overload</span></td>
                     <td>Gateway quá tải</td>
                   </tr>
 
                   <tr>
                     <td>Last Seen</td>
                     <td>{'<= 10s'}</td>
-                    <td>
-                      <span className="badge online">Alive</span>
-                    </td>
+                    <td><span className="badge online">Alive</span></td>
                     <td>Thiết bị đang phản hồi bình thường</td>
                   </tr>
 
                   <tr>
                     <td>Last Seen</td>
                     <td>10 - 20s</td>
-                    <td>
-                      <span className="badge warning">Warning</span>
-                    </td>
+                    <td><span className="badge warning">Warning</span></td>
                     <td>Thiết bị phản hồi chậm</td>
                   </tr>
 
                   <tr>
                     <td>Last Seen</td>
                     <td>{'> 20s'}</td>
-                    <td>
-                      <span className="badge offline">Dead</span>
-                    </td>
+                    <td><span className="badge offline">Dead</span></td>
                     <td>Thiết bị không phản hồi</td>
                   </tr>
                 </tbody>
