@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import './App.css';
+import { MapContainer, TileLayer, CircleMarker, Tooltip, Polyline, Circle } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 
 import gateways from './data/gateways.json';
-import satellites from './data/satellites.json';
 import routers from './data/routers.json';
 import handoverLogs from './data/handoverLogs.json';
 import trafficHistory from './data/trafficHistory.json';
@@ -22,6 +23,167 @@ const menuItems = [
   { id: 'report', label: 'Báo cáo hệ thống', icon: '📝' }
 ];
 
+
+function getInitialGatewayByLatitude(latitude) {
+  if (latitude >= 18) {
+    return {
+      gateway: 'GW-HN',
+      coverage: 'Miền Bắc'
+    };
+  }
+
+  if (latitude >= 13) {
+    return {
+      gateway: 'GW-DN',
+      coverage: 'Miền Trung'
+    };
+  }
+
+  return {
+    gateway: 'GW-HCM',
+    coverage: 'Miền Nam'
+  };
+}
+
+function createLeoConstellation56() {
+  const totalSatellites = 56;
+  const orbitalPlanes = 4;
+  const satellitesPerPlane = 14;
+
+  return Array.from({ length: totalSatellites }, (_, index) => {
+    const planeIndex = Math.floor(index / satellitesPerPlane);
+    const satIndexInPlane = index % satellitesPerPlane;
+    const phase = satIndexInPlane * (360 / satellitesPerPlane) + planeIndex * 35;
+
+    const latitude = 15.5 + Math.sin((phase * Math.PI) / 180) * 6.5;
+    const longitude = 102 + ((phase % 360) / 360) * 8;
+    const gatewayInfo = getInitialGatewayByLatitude(latitude);
+
+    return {
+      id: `SAT-${String(index + 1).padStart(2, '0')}`,
+      orbit: `Plane-${planeIndex + 1}`,
+      plane: planeIndex + 1,
+      latitude: Number(latitude.toFixed(2)),
+      longitude: Number(longitude.toFixed(2)),
+      altitude: 550,
+      speed: 7.6,
+      coverage: gatewayInfo.coverage,
+      gateway: gatewayInfo.gateway,
+      signalQuality: 75 + Math.round(Math.random() * 20),
+      status: 'Online'
+    };
+  });
+}
+
+
+function getSatelliteColor(status) {
+  if (status === 'Online') return '#2563eb';
+  if (status === 'Warning') return '#f59e0b';
+  return '#ef4444';
+}
+
+function VietnamSatelliteMap({ satellites, gateways }) {
+  return (
+    <div className="real-map-wrapper">
+      <MapContainer
+        center={[16.0, 106.0]}
+        zoom={5}
+        minZoom={5}
+        maxZoom={8}
+        scrollWheelZoom={true}
+        className="real-vietnam-map"
+      >
+        <TileLayer
+          attribution="&copy; OpenStreetMap contributors"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        {gateways.map((gw) => {
+          const gatewayPosition = [gw.latitude, gw.longitude];
+
+          return (
+            <CircleMarker
+              key={gw.id}
+              center={gatewayPosition}
+              radius={9}
+              pathOptions={{
+                color: '#dc2626',
+                fillColor: '#ef4444',
+                fillOpacity: 0.9,
+                weight: 2
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -8]} permanent>
+                {gw.id}
+              </Tooltip>
+            </CircleMarker>
+          );
+        })}
+
+        {satellites
+          .filter((sat) => sat.status !== 'Offline')
+          .map((sat) => {
+            const satPosition = [sat.latitude, sat.longitude];
+            const gateway = gateways.find((gw) => gw.id === sat.gateway);
+            const gatewayPosition = gateway
+              ? [gateway.latitude, gateway.longitude]
+              : [16.0544, 108.2022];
+
+            return (
+              <Fragment key={sat.id}>
+                <Circle
+                  center={satPosition}
+                  radius={260000}
+                  pathOptions={{
+                    color: '#2563eb',
+                    fillColor: '#60a5fa',
+                    fillOpacity: 0.04,
+                    weight: 1
+                  }}
+                />
+
+                <Polyline
+                  positions={[satPosition, gatewayPosition]}
+                  pathOptions={{
+                    color: '#2563eb',
+                    weight: 1,
+                    opacity: 0.3,
+                    dashArray: '6 6'
+                  }}
+                />
+
+                <CircleMarker
+                  center={satPosition}
+                  radius={5}
+                  pathOptions={{
+                    color: getSatelliteColor(sat.status),
+                    fillColor: getSatelliteColor(sat.status),
+                    fillOpacity: 0.9,
+                    weight: 1
+                  }}
+                >
+                  <Tooltip direction="top" offset={[0, -6]}>
+                    <div>
+                      <strong>{sat.id}</strong>
+                      <br />
+                      Orbit: {sat.orbit}
+                      <br />
+                      Gateway: {sat.gateway}
+                      <br />
+                      Coverage: {sat.coverage}
+                      <br />
+                      Signal: {sat.signalQuality}%
+                    </div>
+                  </Tooltip>
+                </CircleMarker>
+              </Fragment>
+            );
+          })}
+      </MapContainer>
+    </div>
+  );
+}
+
 function App() {
   const [activeMenu, setActiveMenu] = useState('overview');
   const [routerSearch, setRouterSearch] = useState('');
@@ -30,7 +192,7 @@ function App() {
   const [selectedServiceType, setSelectedServiceType] = useState('Internet/VoIP');
 
   const [liveGateways, setLiveGateways] = useState(gateways);
-  const [liveSatellites, setLiveSatellites] = useState(satellites);
+  const [liveSatellites, setLiveSatellites] = useState(() => createLeoConstellation56());
   const [liveHandoverLogs, setLiveHandoverLogs] = useState(handoverLogs);
   const [simulationTime, setSimulationTime] = useState(0);
   const [isSimulationRunning, setIsSimulationRunning] = useState(true);
@@ -256,9 +418,9 @@ function App() {
     );
 
     const redundancyFactor = 6;
-    const totalSatellites = visibleSatellitesNeeded * redundancyFactor;
-    const orbitalPlanes = 3;
-    const satellitesPerPlane = Math.ceil(totalSatellites / orbitalPlanes);
+    const totalSatellites = 56;
+    const orbitalPlanes = 4;
+    const satellitesPerPlane = 14;
 
     return {
       leoAltitudeKm,
@@ -286,8 +448,12 @@ function App() {
             if (sat.status === 'Offline') return sat;
 
             const oldGateway = sat.gateway;
-            const phase = index * 55;
-            const angle = (nextTime * 10 + phase) % 360;
+            const planeIndex = sat.plane || Math.floor(index / 14) + 1;
+            const satIndexInPlane = index % 14;
+            const phase =
+              satIndexInPlane * (360 / 14) +
+              (planeIndex - 1) * 35;
+            const angle = (nextTime * 4 + phase) % 360;
 
             const newLongitude = 102 + (angle / 360) * 8;
             const newLatitude = 15.5 + Math.sin((angle * Math.PI) / 180) * 6.5;
@@ -867,34 +1033,16 @@ function App() {
             <h2>Quản lý và mô phỏng vệ tinh</h2>
 
             <div className="panel satellite-map">
-              <h3>Bản đồ mô phỏng vị trí vệ tinh</h3>
+              <h3>Bản đồ Việt Nam mô phỏng vị trí 56 vệ tinh LEO</h3>
+              <p className="map-note">
+                Các điểm đỏ là Gateway mặt đất; các điểm xanh/cam là vệ tinh LEO.
+                Đường nét đứt thể hiện liên kết từ vệ tinh tới Gateway đang phục vụ.
+              </p>
 
-              <div className="map-area">
-                <div className="orbit-line orbit-1"></div>
-                <div className="orbit-line orbit-2"></div>
-                <div className="orbit-line orbit-3"></div>
-
-                <div className="region north">Miền Bắc<br />GW-HN</div>
-                <div className="region central">Miền Trung<br />GW-DN</div>
-                <div className="region south">Miền Nam<br />GW-HCM</div>
-
-                {liveSatellites
-                  .filter((sat) => sat.status !== 'Offline')
-                  .map((sat) => (
-                    <div
-                      className="sat-dot"
-                      key={sat.id}
-                      style={{
-                        left: `${Math.max(5, Math.min(95, ((sat.longitude - 102) / 8) * 100))}%`,
-                        top: `${Math.max(8, Math.min(92, ((23 - sat.latitude) / 15) * 100))}%`
-                      }}
-                      title={`${sat.id} - ${sat.coverage}`}
-                    >
-                      🛰️
-                      <span>{sat.id}</span>
-                    </div>
-                  ))}
-              </div>
+              <VietnamSatelliteMap
+                satellites={liveSatellites}
+                gateways={liveGateways}
+              />
             </div>
 
             <div className="panel">
